@@ -43,6 +43,10 @@ firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 const ref = db.collection("game").doc("main");
 
+const players = document.getElementById("players");
+const buttons = document.getElementById("buttons");
+const history = document.getElementById("history");
+
 ref.onSnapshot(s=>{
  if(!s.exists)return;
  render(s.data());
@@ -128,3 +132,4 @@ function resetGame(){
 
 </body>
 </html>
+
