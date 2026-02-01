@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width">
+
+<title>賭けチップ管理システム</title>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+
+<style>
+body{font-size:18px;font-family:sans-serif}
+button,input{font-size:18px;width:100%;margin:5px 0}
+.player{border:1px solid #ccc;padding:10px;margin:10px 0}
+</style>
+
+</head>
+<body>
+
+<h2>賭けチップ管理システム</h2>
+
+<input id="name" placeholder="名前">
+<input id="start" type="number" value="100">
+<button onclick="add()">追加</button>
+
+<div id="players"></div>
+<div id="buttons"></div>
+<div id="history"></div>
+
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyB1RZdBCPBjWCKlWOhL4d89peDVkV3zx18",
+  authDomain: "bet-app-6ae74.firebaseapp.com",
+  projectId: "bet-app-6ae74",
+  storageBucket: "bet-app-6ae74.firebasestorage.app",
+  messagingSenderId: "1086926403037",
+  appId: "1:1086926403037:web:61dd6d59b970a10279b234",
+  measurementId: "G-04VXJL8KSZ"
+};
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+const ref = db.collection("game").doc("main");
+
+ref.onSnapshot(s=>{
+ if(!s.exists)return;
+ render(s.data());
+});
+
+function add(){
+
+ const nameInput = document.getElementById("name");
+ const startInput = document.getElementById("start");
+
+ const n = nameInput.value.trim();
+ const p = Number(startInput.value || 0);
+
+ if(!n){
+  alert("名前を入れてください");
+  return;
+ }
+
+ ref.set({
+  players: firebase.firestore.FieldValue.arrayUnion({
+   name:n,
+   point:p,
+   bet:0
+  })
+ },{merge:true});
+}
+
+function bet(i,v){
+ ref.get().then(s=>{
+  let d=s.data();
+  d.players[i].bet=Number(v);
+  ref.set(d, { merge: true });
+ });
+}
+
+function win(i){
+ ref.get().then(s=>{
+  let d=s.data();
+  let t=0;
+  d.players.forEach(p=>{t+=p.bet;p.point-=p.bet});
+  d.players[i].point+=t;
+  d.players.forEach(p=>p.bet=0);
+  d.history=(d.history||"")+`<div>${d.players[i].name} 勝利 +${t}</div>`;
+  ref.set(d, { merge: true });
+ });
+}
+
+function render(d){
+
+ players.innerHTML = "";
+ buttons.innerHTML = "";
+ history.innerHTML = d.history || "";
+
+ d.players?.forEach((p,i)=>{
+
+  players.innerHTML += `
+  <div style="margin-bottom:10px">
+   <b>${p.name}</b> : ${p.point}pt / BET:${p.bet || 0}pt<br>
+   <input type="number" onchange="bet(${i},this.value)">
+  </div>
+  `;
+
+  buttons.innerHTML += `<button onclick="win(${i})">🏆 ${p.name} 勝利</button>`;
+
+ });
+
+}
+
+function resetGame(){
+ if(!confirm("全員のポイントと履歴をリセットしますか？")) return;
+
+ ref.set({
+  players: [],
+  history: ""
+ });
+}
+
+</script>
+
+<button onclick="resetGame()" style="margin-top:20px;font-size:20px;padding:10px">
+🔄 全リセット
+</button>
+
+</body>
+</html>
