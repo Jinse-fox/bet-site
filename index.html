@@ -3,40 +3,52 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width">
-
 <title>賭けチップ管理システム</title>
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 
 <style>
-body{font-size:18px;font-family:sans-serif}
-button,input{font-size:18px;width:100%;margin:5px 0}
-.player{border:1px solid #ccc;padding:10px;margin:10px 0}
+  body{font-size:18px;font-family:sans-serif; background: #f4f4f4; padding: 10px;}
+  .container { max-width: 600px; margin: auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+  button,input,select{font-size:16px; width:100%; margin:5px 0; padding: 10px; box-sizing: border-box;}
+  .player{border:2px solid #eee; padding:15px; margin:10px 0; border-radius: 8px; position: relative;}
+  .oya-active { border-color: #ffc107; background: #fff9e6; }
+  .oya-badge { background: #ffc107; color: black; font-weight: bold; padding: 2px 8px; border-radius: 4px; font-size: 12px; margin-right: 5px; }
+  .history-box { background: #eee; padding: 10px; border-radius: 5px; max-height: 200px; overflow-y: auto; font-size: 14px; margin-top: 20px; }
+  .delete-btn { width: auto; background: #ff4d4d; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; float: right; }
+  .settle-btn { background: #4caf50; color: white; font-weight: bold; font-size: 20px; margin-top: 20px;}
 </style>
-
 </head>
 <body>
-  
-<h2>賭けチップ管理システム</h2>
 
-<div style="display:flex; gap:10px;">
-  <select id="groupSelect" onchange="changeGroup()">
-    <option value="group-1">グループ1</option>
-  </select>
-  <button onclick="addGroup()">＋グループ作成</button>
-  <button onclick="deleteGroup()">－削除</button>
+<div class="container">
+  <h2>🎲 賭けチップ管理システム</h2>
+
+  <div style="display:flex; gap:10px;">
+    <select id="groupSelect" onchange="changeGroup()">
+      <option value="group-1">グループ1</option>
+    </select>
+    <button style="width:auto;" onclick="addGroup()">＋</button>
+    <button style="width:auto;" onclick="deleteGroup()">－</button>
+  </div>
+
+  <div style="display:flex; gap:5px;">
+    <input id="name" placeholder="名前" style="flex:2;">
+    <input id="start" type="number" value="100" style="flex:1;">
+    <button onclick="add()" style="flex:1;">参加</button>
+  </div>
+
+  <div id="players"></div>
+  <div id="buttons"></div>
+  
+  <div class="history-box" id="history"></div>
+
+  <button onclick="resetGame()" style="background:#888; color:white; margin-top:40px;">🔄 全リセット</button>
 </div>
 
-<input id="name" placeholder="名前">
-<input id="start" type="number" value="100">
-<button onclick="add()">追加</button>
-
-<div id="players"></div>
-<div id="buttons"></div>
-<div id="history"></div>
-
 <script>
+// --- Firebase 設定 ---
 const firebaseConfig = {
   apiKey: "AIzaSyB1RZdBCPBjWCKlWOhL4d89peDVkV3zx18",
   authDomain: "bet-app-6ae74.firebaseapp.com",
@@ -50,200 +62,219 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 let ref = db.collection("game").doc("main");
-
 let unsubscribe = null;
 
-function getGroups() {
-  return JSON.parse(localStorage.getItem("groupList")) || [];
-}
-
-function saveGroups(list) {
-  localStorage.setItem("groupList", JSON.stringify(list));
-}
- 
-const players = document.getElementById("players");
-const buttons = document.getElementById("buttons");
-const history = document.getElementById("history");
+// --- チンチロ役の設定 ---
+// scoreが大きいほど強い。同点なら親の勝ち。
+// --- チンチロ役の設定 ---
+// scoreが大きいほど強い。同点なら親の勝ち。
+const YAKU_CONFIG = {
+  "pinzoro": { name: "ピンゾロ(111)", mult: 5, score: 100 },
+  "arashi2": { name: "アラシ(222)",   mult: 3, score: 95 },
+  "arashi3": { name: "アラシ(333)",   mult: 3, score: 94 },
+  "arashi4": { name: "アラシ(444)",   mult: 3, score: 93 },
+  "arashi5": { name: "アラシ(555)",   mult: 3, score: 92 },
+  "arashi6": { name: "アラシ(666)",   mult: 3, score: 91 },
+  "shigoro": { name: "シゴロ(456)",   mult: 2, score: 80 },
+  "p6":      { name: "6の目",         mult: 1, score: 6 },
+  "p5":      { name: "5の目",         mult: 1, score: 5 },
+  "p4":      { name: "4の目",         mult: 1, score: 4 },
+  "p3":      { name: "3の目",         mult: 1, score: 3 },
+  "p2":      { name: "2の目",         mult: 1, score: 2 },
+  "p1":      { name: "1の目",         mult: 1, score: 1 },
+  "none":    { name: "役なし",        mult: 1, score: 0 },
+  "shomben": { name: "ションベン",    mult: 1, score: 0 },
+  "hifumi":  { name: "ヒフミ(123)",   mult: 2, score: -1 }
+};
+// --- 関数群 ---
 
 function add(){
+  const n = document.getElementById("name").value.trim();
+  const p = Number(document.getElementById("start").value || 0);
+  if(!n) return alert("名前を入れてください");
 
- const nameInput = document.getElementById("name");
- const startInput = document.getElementById("start");
-
- const n = nameInput.value.trim();
- const p = Number(startInput.value || 0);
-
- if(!n){
-  alert("名前を入れてください");
-  return;
- }
-
- ref.set({
-  players: firebase.firestore.FieldValue.arrayUnion({
-   name:n,
-   point:p,
-   bet:0
-  })
- },{merge:true});
+  ref.set({
+    players: firebase.firestore.FieldValue.arrayUnion({
+      name:n, point:p, bet:0, yaku:"none", isOya: false
+    })
+  },{merge:true});
+  document.getElementById("name").value = "";
 }
 
-function bet(i,v){
- ref.get().then(s=>{
-  let d=s.data();
-  d.players[i].bet=Number(v);
-  ref.set(d, { merge: true });
- });
-}
-
-function win(i){
- ref.get().then(s=>{
-  let d=s.data();
-  let t=0;
-  d.players.forEach(p=>{t+=p.bet;p.point-=p.bet});
-  d.players[i].point+=t;
-  d.players.forEach(p=>p.bet=0);
-  d.history=(d.history||"")+`<div>${d.players[i].name} 勝利 +${t}</div>`;
-  ref.set(d, { merge: true });
- });
-}
-  
 function removePlayer(i) {
-  const check = confirm("このメンバーを削除してもよろしいですか？");
-  if (!check) return;
-
+  if(!confirm("削除しますか？")) return;
   ref.get().then(s => {
     let d = s.data();
-    // 配列から指定した番号(i)の要素を1つ削除
     d.players.splice(i, 1);
-    
-    // 更新された配列をFirestoreに保存
     ref.set(d, { merge: true });
   });
 }
-  
-function render(d){
-  players.innerHTML = "";
-  buttons.innerHTML = "";
-  history.innerHTML = d.history || "";
 
-  d.players?.forEach((p, i) => {
-    // メンバー表示部分に削除ボタンを追加
-    players.innerHTML += `
-    <div style="margin-bottom:10px; border-bottom: 1px solid #eee; padding-bottom: 5px;">
-      <div style="display: flex; justify-content: space-between; align-items: center;">
-        <span><b>${p.name}</b> : ${p.point}pt / BET:${p.bet || 0}pt</span>
-        <button onclick="removePlayer(${i})" style="width: auto; background: #ff4d4d; color: white; border: none; padding: 2px 8px; border-radius: 4px; cursor: pointer;">削除</button>
-      </div>
-      <input type="number" placeholder="BET額を入力" onchange="bet(${i},this.value)">
-    </div>
-    `;
-
-    buttons.innerHTML += `<button onclick="win(${i})">🏆 ${p.name} 勝利</button>`;
+function bet(i, v){
+  ref.get().then(s => {
+    let d = s.data();
+    d.players[i].bet = Number(v);
+    ref.set(d, { merge: true });
   });
 }
 
-function resetGame(){
- if(!confirm("全員のポイントと履歴をリセットしますか？")) return;
-
- ref.set({
-  players: [],
-  history: ""
- });
+function setYaku(i, yakuKey){
+  ref.get().then(s => {
+    let d = s.data();
+    d.players[i].yaku = yakuKey;
+    ref.set(d, { merge: true });
+  });
 }
+
+function setOya(index) {
+  ref.get().then(s => {
+    let d = s.data();
+    d.players.forEach((p, i) => p.isOya = (i === index));
+    ref.set(d, { merge: true });
+  });
+}
+
+// 精算ロジック
+function settleChinchiro() {
+  ref.get().then(s => {
+    let d = s.data();
+    const oyaIndex = d.players.findIndex(p => p.isOya);
+    if (oyaIndex === -1) return alert("親を決めてください");
+    if (!confirm("精算しますか？")) return;
+
+    const oya = d.players[oyaIndex];
+    const oyaYaku = YAKU_CONFIG[oya.yaku || "none"];
+    let log = `【精算】親:${oya.name}(${oyaYaku.name})<br>`;
+    let oyaTotalChange = 0;
+
+    d.players.forEach((p, i) => {
+      if (i === oyaIndex) return;
+      
+      const playerYaku = YAKU_CONFIG[p.yaku || "none"];
+      const bet = p.bet || 0;
+      let change = 0;
+
+      // 判定ロジック: 子のスコアが親より高ければ子の勝ち
+      if (playerYaku.score > oyaYaku.score) {
+        // 子の勝ち：子の役の倍率を適用
+        change = bet * playerYaku.mult;
+        log += `◯ ${p.name}: ${playerYaku.name}勝 (+${change})<br>`;
+      } else {
+        // 親の勝ち（同点含む）：親の役の倍率を適用（ただし子がヒフミなら2倍）
+        let mult = Math.max(oyaYaku.mult, playerYaku.name === "ヒフミ" ? 2 : 1);
+        change = -(bet * mult);
+        log += `● ${p.name}: 負け (${change})<br>`;
+      }
+
+      p.point += change;
+      oyaTotalChange -= change;
+    });
+
+    d.players[oyaIndex].point += oyaTotalChange;
+    log += `親の収支: ${oyaTotalChange > 0 ? "+" : ""}${oyaTotalChange}<hr>`;
+    
+    // リセット
+    d.players.forEach(p => { p.bet = 0; p.yaku = "none"; });
+    d.history = log + (d.history || "");
+    ref.set(d, { merge: true });
+  });
+}
+
+function render(d){
+  const playersDiv = document.getElementById("players");
+  const buttonsDiv = document.getElementById("buttons");
+  playersDiv.innerHTML = "";
+  buttonsDiv.innerHTML = "";
+  document.getElementById("history").innerHTML = d.history || "履歴なし";
+
+  d.players?.forEach((p, i) => {
+    playersDiv.innerHTML += `
+    <div class="player ${p.isOya ? 'oya-active' : ''}">
+      <button class="delete-btn" onclick="removePlayer(${i})">×</button>
+      <div>
+        ${p.isOya ? '<span class="oya-badge">親</span>' : ''}
+        <b>${p.name}</b> : <span style="font-size:20px">${p.point}</span> pt
+      </div>
+      <div style="display:flex; gap:5px; margin-top:10px;">
+        <input type="number" value="${p.bet}" onchange="bet(${i},this.value)" placeholder="BET" style="flex:1">
+        <select onchange="setYaku(${i},this.value)" style="flex:2">
+          <option value="none">--- 役を選択 ---</option>
+          <optgroup label="特殊役">
+            <option value="pinzoro" ${p.yaku==='pinzoro'?'selected':''}>ピンゾロ (5倍)</option>
+            <option value="shigoro" ${p.yaku==='shigoro'?'selected':''}>シゴロ (2倍)</option>
+            <option value="hifumi" ${p.yaku==='hifumi'?'selected':''}>ヒフミ (2倍払)</option>
+          </optgroup>
+          <optgroup label="アラシ (3倍)">
+            <option value="arashi2" ${p.yaku==='arashi2'?'selected':''}>222</option>
+            <option value="arashi3" ${p.yaku==='arashi3'?'selected':''}>333</option>
+            <option value="arashi4" ${p.yaku==='arashi4'?'selected':''}>444</option>
+            <option value="arashi5" ${p.yaku==='arashi5'?'selected':''}>555</option>
+            <option value="arashi6" ${p.yaku==='arashi6'?'selected':''}>666</option>
+          </optgroup>
+          <optgroup label="通常の目">
+            ${[6,5,4,3,2,1].map(n => `<option value="p${n}" ${p.yaku==='p'+n?'selected':''}>${n}の目</option>`).join('')}
+          </optgroup>
+          <option value="none" ${p.yaku==='none'?'selected':''}>役なし</option>
+          <option value="shomben" ${p.yaku==='shomben'?'selected':''}>ションベン</option>
+        </select>
+        <button onclick="setOya(${i})" style="flex:1; padding:5px; font-size:12px;">親に設定</button>
+      </div>
+    </div>`;
+  });
+
+  if(d.players?.length > 0) {
+    buttonsDiv.innerHTML = `<button class="settle-btn" onclick="settleChinchiro()">🎲 チンチロ精算実行</button>`;
+  }
+}
+
+// --- グループ管理系 ---
+function getGroups() { return JSON.parse(localStorage.getItem("groupList")) || []; }
+function saveGroups(list) { localStorage.setItem("groupList", JSON.stringify(list)); }
 
 function changeGroup(){
   const name = document.getElementById("groupSelect").value;
- 
-  if(unsubscribe){
-    unsubscribe();
-  }
-  
+  if(unsubscribe) unsubscribe();
   ref = db.collection("game").doc(name);
-
-unsubscribe = ref.onSnapshot(s=>{
-    if(!s.exists){
-      render({players:[], history:""});
-      return;
-    }
-    render(s.data());
+  unsubscribe = ref.onSnapshot(s => {
+    if(s.exists) render(s.data());
+    else render({players:[], history:""});
   });
 }
 
-window.onload = function(){
-  const select = document.getElementById("groupSelect");
-  const saved = getGroups();
-
-  saved.forEach(name=>{
-    const option = document.createElement("option");
-    option.value = name;
-    option.textContent = name;
-    select.appendChild(option);
-  });
-
-  changeGroup();
-};
-
 function addGroup(){
-  const name = prompt("グループ名を入力してください");
+  const name = prompt("グループ名");
   if(!name) return;
-
   const select = document.getElementById("groupSelect");
-
-  // 重複チェック
-  if([...select.options].some(o => o.value === name)){
-    alert("同じ名前があります");
-    return;
-  }
-
   const option = document.createElement("option");
-  option.value = name;
-  option.textContent = name;
+  option.value = name; option.textContent = name;
   select.appendChild(option);
-
-  // localStorageに保存
-  const list = getGroups();
-  list.push(name);
-  saveGroups(list);
-
-  select.value = name;
-  changeGroup();
+  const list = getGroups(); list.push(name); saveGroups(list);
+  select.value = name; changeGroup();
 }
 
 function deleteGroup(){
   const select = document.getElementById("groupSelect");
   const name = select.value;
-
-  if(!confirm(name + " を削除しますか？")) return;
-
+  if(!confirm(name + " を消しますか？")) return;
   db.collection("game").doc(name).delete();
-
-  // localStorageから削除
-  let list = getGroups();
-  list = list.filter(n => n !== name);
-  saveGroups(list);
-
+  let list = getGroups(); list = list.filter(n => n !== name); saveGroups(list);
   select.remove(select.selectedIndex);
-
-  if(select.options.length > 0){
-    changeGroup();
-  }
+  if(select.options.length > 0) changeGroup();
 }
 
+function resetGame(){
+  if(confirm("リセットしますか？")) ref.set({ players: [], history: "" });
+}
+
+window.onload = () => {
+  const select = document.getElementById("groupSelect");
+  getGroups().forEach(name => {
+    const option = document.createElement("option");
+    option.value = name; option.textContent = name;
+    select.appendChild(option);
+  });
+  changeGroup();
+};
 </script>
-
-<button onclick="resetGame()" style="margin-top:20px;font-size:20px;padding:10px">
-🔄 全リセット
-</button>
-
 </body>
 </html>
-
-
-
-
-
-
-
-
-
-
