@@ -20,8 +20,13 @@
   .history-box { background: #eee; padding: 10px; border-radius: 5px; max-height: 200px; overflow-y: auto; font-size: 14px; margin-top: 20px; }
   .delete-btn { width: auto; background: #ddd; color: #333; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; float: right; }
   .settle-btn { background: #4caf50; color: white; font-weight: bold; font-size: 20px; margin-top: 20px;}
-  .borrow-area { display: flex; gap: 5px; margin-top: 10px; background: #ffebeb; padding: 8px; border-radius: 5px; }
+  
+  /* 借金・返済エリアのスタイル */
+  .money-action-area { margin-top: 10px; padding: 10px; border-radius: 5px; }
+  .borrow-bg { background: #ffebeb; }
+  .repay-bg { background: #e8f5e9; }
   .borrow-btn { background: #ff4d4d; color: white; font-weight: bold; margin: 0; flex: 1; }
+  .repay-btn { background: #43a047; color: white; font-weight: bold; margin: 0; flex: 1; }
 </style>
 </head>
 <body>
@@ -136,11 +141,12 @@ function setOya(index) {
   });
 }
 
+// 借金機能
 function borrowMoney(i) {
   const inputEl = document.getElementById(`borrow-input-${i}`);
   const amount = Number(inputEl.value);
-  if(!amount || amount <= 0) return alert("借金する金額を正しく入力してください");
-  if(!confirm(amount + "pt 借金しますか？")) return;
+  if(!amount || amount <= 0) return alert("金額を入力してください");
+  
   ref.get().then(s => {
     let d = s.data();
     d.players[i].point += amount;
@@ -150,19 +156,34 @@ function borrowMoney(i) {
   });
 }
 
-// 精算ロジック (0円チェック追加版)
+// 返済機能
+function repayDebt(i) {
+  const inputEl = document.getElementById(`repay-input-${i}`);
+  const amount = Number(inputEl.value);
+  
+  ref.get().then(s => {
+    let d = s.data();
+    const p = d.players[i];
+    
+    if(!amount || amount <= 0) return alert("返済額を入力してください");
+    if(amount > p.point) return alert("所持ポイントが足りません");
+    if(amount > p.debt) return alert("借金総額を超えています");
+
+    p.point -= amount;
+    p.debt -= amount;
+    d.history = `<div>💰 ${p.name} が ${amount}pt 返済しました</div>` + (d.history || "");
+    ref.set(d, { merge: true });
+  });
+}
+
 function settleChinchiro() {
   ref.get().then(s => {
     let d = s.data();
-    
-    // --- 【追加】所持金0チェック ---
     const brokePlayers = d.players.filter(p => p.point <= 0);
     if (brokePlayers.length > 0) {
-      const names = brokePlayers.map(p => p.name).join(", ");
-      alert(`所持金が0以下のメンバー（${names}）がいるため精算できません。\n借金して軍資金を追加してください。`);
+      alert(`所持金が0以下のメンバー（${brokePlayers.map(p=>p.name).join(", ")}）がいるため精算できません。`);
       return;
     }
-    // ----------------------------
 
     const oyaIndex = d.players.findIndex(p => p.isOya);
     if (oyaIndex === -1) return alert("親を決めてください");
@@ -207,47 +228,38 @@ function render(d){
   document.getElementById("history").innerHTML = d.history || "履歴なし";
 
   d.players?.forEach((p, i) => {
-    const isDebt = p.point <= 0;
+    const isBroke = p.point <= 0;
+    const hasDebt = (p.debt || 0) > 0;
     
     playersDiv.innerHTML += `
-    <div class="player ${p.isOya ? 'oya-active' : ''} ${isDebt ? 'debt-active' : ''}">
+    <div class="player ${p.isOya ? 'oya-active' : ''} ${isBroke ? 'debt-active' : ''}">
       <button class="delete-btn" onclick="removePlayer(${i})">×</button>
       <div>
         ${p.isOya ? '<span class="oya-badge">親</span>' : ''}
-        ${isDebt ? '<span class="debt-badge">所持金なし</span>' : ''}
-        <b>${p.name}</b> : <span style="font-size:20px; color:${isDebt ? 'red' : 'black'}">${p.point}</span> pt
+        ${isBroke ? '<span class="debt-badge">所持金なし</span>' : ''}
+        <b>${p.name}</b> : <span style="font-size:20px; color:${isBroke ? 'red' : 'black'}">${p.point}</span> pt
         <div style="font-size:12px; color:#666;">（借金総額: ${p.debt || 0}pt）</div>
       </div>
       
       <div style="display:flex; gap:5px; margin-top:10px;">
         <input type="number" value="${p.bet}" onchange="bet(${i},this.value)" placeholder="BET" style="flex:1">
         <select onchange="setYaku(${i},this.value)" style="flex:2">
-          <option value="none">役を選択</option>
-          <optgroup label="特殊役">
-            <option value="pinzoro" ${p.yaku==='pinzoro'?'selected':''}>ピンゾロ (5倍)</option>
-            <option value="shigoro" ${p.yaku==='shigoro'?'selected':''}>シゴロ (2倍)</option>
-            <option value="hifumi" ${p.yaku==='hifumi'?'selected':''}>ヒフミ (2倍払)</option>
-          </optgroup>
-          <optgroup label="アラシ (3倍)">
-            <option value="arashi2" ${p.yaku==='arashi2'?'selected':''}>222</option>
-            <option value="arashi3" ${p.yaku==='arashi3'?'selected':''}>333</option>
-            <option value="arashi4" ${p.yaku==='arashi4'?'selected':''}>444</option>
-            <option value="arashi5" ${p.yaku==='arashi5'?'selected':''}>555</option>
-            <option value="arashi6" ${p.yaku==='arashi6'?'selected':''}>666</option>
-          </optgroup>
-          <optgroup label="通常の目">
-            ${[6,5,4,3,2,1].map(n => `<option value="p${n}" ${p.yaku==='p'+n?'selected':''}>${n}の目</option>`).join('')}
-          </optgroup>
-          <option value="none" ${p.yaku==='none'?'selected':''}>役なし</option>
-          <option value="shomben" ${p.yaku==='shomben'?'selected':''}>ションベン</option>
+          ${Object.keys(YAKU_CONFIG).map(k => `<option value="${k}" ${p.yaku===k?'selected':''}>${YAKU_CONFIG[k].name}</option>`).join('')}
         </select>
         <button onclick="setOya(${i})" style="flex:1; padding:5px; font-size:12px;">親設定</button>
       </div>
       
-      ${isDebt ? `
-      <div class="borrow-area">
-        <input type="number" id="borrow-input-${i}" placeholder="借金する額" style="flex:1; margin:0;">
-        <button class="borrow-btn" onclick="borrowMoney(${i})">💸 借金実行</button>
+      ${isBroke ? `
+      <div class="money-action-area borrow-bg" style="display:flex; gap:5px;">
+        <input type="number" id="borrow-input-${i}" placeholder="借りる額" style="flex:1; margin:0;">
+        <button class="borrow-btn" onclick="borrowMoney(${i})">💸 借金</button>
+      </div>
+      ` : ''}
+
+      ${hasDebt && !isBroke ? `
+      <div class="money-action-area repay-bg" style="display:flex; gap:5px;">
+        <input type="number" id="repay-input-${i}" placeholder="返す額" style="flex:1; margin:0;">
+        <button class="repay-btn" onclick="repayDebt(${i})">💰 返済</button>
       </div>
       ` : ''}
     </div>`;
@@ -258,7 +270,7 @@ function render(d){
   }
 }
 
-// --- グループ管理系 ---
+// --- 管理系 ---
 function getGroups() { return JSON.parse(localStorage.getItem("groupList")) || []; }
 function saveGroups(list) { localStorage.setItem("groupList", JSON.stringify(list)); }
 function changeGroup(){
@@ -304,4 +316,3 @@ window.onload = () => {
 </script>
 </body>
 </html>
-
