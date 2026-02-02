@@ -20,6 +20,16 @@ button,input{font-size:18px;width:100%;margin:5px 0}
   
 <h2>賭けチップ管理システム</h2>
 
+<div style="display:flex; gap:10px;">
+  <select id="groupSelect" onchange="changeGroup()">
+    <option value="family">グループ1</option>
+    <option value="school">グループ2</option>
+    <option value="university">グループ3</option>
+  </select>
+  <button onclick="addGroup()">＋グループ作成</button>
+  <button onclick="deleteGroup()">－削除</button>
+</div>
+
 <input id="name" placeholder="名前">
 <input id="start" type="number" value="100">
 <button onclick="add()">追加</button>
@@ -41,8 +51,16 @@ const firebaseConfig = {
 
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
-const ref = db.collection("game").doc("main");
+let ref = db.collection("game").doc("main");
 
+function getGroups() {
+  return JSON.parse(localStorage.getItem("groups")) || {};
+}
+
+function saveGroups(groups) {
+  localStorage.setItem("groups", JSON.stringify(groups));
+}
+ 
 const players = document.getElementById("players");
 const buttons = document.getElementById("buttons");
 const history = document.getElementById("history");
@@ -124,6 +142,39 @@ function resetGame(){
  });
 }
 
+function changeGroup(){
+  const name = document.getElementById("groupSelect").value;
+
+  ref = db.collection("game").doc(name);
+
+  ref.onSnapshot(s=>{
+    if(!s.exists) return;
+    render(s.data());
+  });
+}
+
+window.onload = function(){
+  changeGroup();
+};
+
+function deleteGroup(){
+  const select = document.getElementById("groupSelect");
+  const name = select.value;
+
+  if(!confirm(name + " を削除しますか？")) return;
+
+  // Firestoreから削除
+  db.collection("game").doc(name).delete();
+
+  // プルダウンから削除
+  select.remove(select.selectedIndex);
+
+  // 次のグループに切り替え
+  if(select.options.length > 0){
+    changeGroup();
+  }
+}
+
 </script>
 
 <button onclick="resetGame()" style="margin-top:20px;font-size:20px;padding:10px">
@@ -132,6 +183,7 @@ function resetGame(){
 
 </body>
 </html>
+
 
 
 
