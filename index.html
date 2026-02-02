@@ -106,26 +106,40 @@ function win(i){
   ref.set(d, { merge: true });
  });
 }
+  
+function removePlayer(i) {
+  const check = confirm("このメンバーを削除してもよろしいですか？");
+  if (!check) return;
 
+  ref.get().then(s => {
+    let d = s.data();
+    // 配列から指定した番号(i)の要素を1つ削除
+    d.players.splice(i, 1);
+    
+    // 更新された配列をFirestoreに保存
+    ref.set(d, { merge: true });
+  });
+}
+  
 function render(d){
+  players.innerHTML = "";
+  buttons.innerHTML = "";
+  history.innerHTML = d.history || "";
 
- players.innerHTML = "";
- buttons.innerHTML = "";
- history.innerHTML = d.history || "";
+  d.players?.forEach((p, i) => {
+    // メンバー表示部分に削除ボタンを追加
+    players.innerHTML += `
+    <div style="margin-bottom:10px; border-bottom: 1px solid #eee; padding-bottom: 5px;">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <span><b>${p.name}</b> : ${p.point}pt / BET:${p.bet || 0}pt</span>
+        <button onclick="removePlayer(${i})" style="width: auto; background: #ff4d4d; color: white; border: none; padding: 2px 8px; border-radius: 4px; cursor: pointer;">削除</button>
+      </div>
+      <input type="number" placeholder="BET額を入力" onchange="bet(${i},this.value)">
+    </div>
+    `;
 
- d.players?.forEach((p,i)=>{
-
-  players.innerHTML += `
-  <div style="margin-bottom:10px">
-   <b>${p.name}</b> : ${p.point}pt / BET:${p.bet || 0}pt<br>
-   <input type="number" onchange="bet(${i},this.value)">
-  </div>
-  `;
-
-  buttons.innerHTML += `<button onclick="win(${i})">🏆 ${p.name} 勝利</button>`;
-
- });
-
+    buttons.innerHTML += `<button onclick="win(${i})">🏆 ${p.name} 勝利</button>`;
+  });
 }
 
 function resetGame(){
@@ -223,6 +237,7 @@ function deleteGroup(){
 
 </body>
 </html>
+
 
 
 
