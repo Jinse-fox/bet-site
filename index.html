@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width">
-<title>賭けチップ管理システム</title>
+<title>（試作）賭けチップ管理システム</title>
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
@@ -14,10 +14,14 @@
   button,input,select{font-size:16px; width:100%; margin:5px 0; padding: 10px; box-sizing: border-box;}
   .player{border:2px solid #eee; padding:15px; margin:10px 0; border-radius: 8px; position: relative;}
   .oya-active { border-color: #ffc107; background: #fff9e6; }
+  .debt-active { border-color: #ff4d4d; background: #fff0f0; }
   .oya-badge { background: #ffc107; color: black; font-weight: bold; padding: 2px 8px; border-radius: 4px; font-size: 12px; margin-right: 5px; }
+  .debt-badge { background: #ff4d4d; color: white; font-weight: bold; padding: 2px 8px; border-radius: 4px; font-size: 12px; margin-right: 5px; }
   .history-box { background: #eee; padding: 10px; border-radius: 5px; max-height: 200px; overflow-y: auto; font-size: 14px; margin-top: 20px; }
-  .delete-btn { width: auto; background: #ff4d4d; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; float: right; }
+  .delete-btn { width: auto; background: #ddd; color: #333; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; float: right; }
   .settle-btn { background: #4caf50; color: white; font-weight: bold; font-size: 20px; margin-top: 20px;}
+  .borrow-area { display: flex; gap: 5px; margin-top: 10px; background: #ffebeb; padding: 8px; border-radius: 5px; }
+  .borrow-btn { background: #ff4d4d; color: white; font-weight: bold; margin: 0; flex: 1; }
 </style>
 </head>
 <body>
@@ -65,9 +69,6 @@ let ref = db.collection("game").doc("main");
 let unsubscribe = null;
 
 // --- チンチロ役の設定 ---
-// scoreが大きいほど強い。同点なら親の勝ち。
-// --- チンチロ役の設定 ---
-// scoreが大きいほど強い。同点なら親の勝ち。
 const YAKU_CONFIG = {
   "pinzoro": { name: "ピンゾロ(111)", mult: 5, score: 100 },
   "arashi2": { name: "アラシ(222)",   mult: 3, score: 95 },
@@ -86,6 +87,7 @@ const YAKU_CONFIG = {
   "shomben": { name: "ションベン",    mult: 1, score: 0 },
   "hifumi":  { name: "ヒフミ(123)",   mult: 2, score: -1 }
 };
+
 // --- 関数群 ---
 
 function add(){
@@ -95,7 +97,7 @@ function add(){
 
   ref.set({
     players: firebase.firestore.FieldValue.arrayUnion({
-      name:n, point:p, bet:0, yaku:"none", isOya: false
+      name:n, point:p, bet:0, yaku:"none", isOya: false, debt: 0
     })
   },{merge:true});
   document.getElementById("name").value = "";
@@ -134,10 +136,34 @@ function setOya(index) {
   });
 }
 
-// 精算ロジック
+function borrowMoney(i) {
+  const inputEl = document.getElementById(`borrow-input-${i}`);
+  const amount = Number(inputEl.value);
+  if(!amount || amount <= 0) return alert("借金する金額を正しく入力してください");
+  if(!confirm(amount + "pt 借金しますか？")) return;
+  ref.get().then(s => {
+    let d = s.data();
+    d.players[i].point += amount;
+    d.players[i].debt = (d.players[i].debt || 0) + amount;
+    d.history = `<div>💸 ${d.players[i].name} が ${amount}pt 借金しました</div>` + (d.history || "");
+    ref.set(d, { merge: true });
+  });
+}
+
+// 精算ロジック (0円チェック追加版)
 function settleChinchiro() {
   ref.get().then(s => {
     let d = s.data();
+    
+    // --- 【追加】所持金0チェック ---
+    const brokePlayers = d.players.filter(p => p.point <= 0);
+    if (brokePlayers.length > 0) {
+      const names = brokePlayers.map(p => p.name).join(", ");
+      alert(`所持金が0以下のメンバー（${names}）がいるため精算できません。\n借金して軍資金を追加してください。`);
+      return;
+    }
+    // ----------------------------
+
     const oyaIndex = d.players.findIndex(p => p.isOya);
     if (oyaIndex === -1) return alert("親を決めてください");
     if (!confirm("精算しますか？")) return;
@@ -149,31 +175,24 @@ function settleChinchiro() {
 
     d.players.forEach((p, i) => {
       if (i === oyaIndex) return;
-      
       const playerYaku = YAKU_CONFIG[p.yaku || "none"];
       const bet = p.bet || 0;
       let change = 0;
 
-      // 判定ロジック: 子のスコアが親より高ければ子の勝ち
       if (playerYaku.score > oyaYaku.score) {
-        // 子の勝ち：子の役の倍率を適用
         change = bet * playerYaku.mult;
         log += `◯ ${p.name}: ${playerYaku.name}勝 (+${change})<br>`;
       } else {
-        // 親の勝ち（同点含む）：親の役の倍率を適用（ただし子がヒフミなら2倍）
         let mult = Math.max(oyaYaku.mult, playerYaku.name === "ヒフミ" ? 2 : 1);
         change = -(bet * mult);
         log += `● ${p.name}: 負け (${change})<br>`;
       }
-
       p.point += change;
       oyaTotalChange -= change;
     });
 
     d.players[oyaIndex].point += oyaTotalChange;
     log += `親の収支: ${oyaTotalChange > 0 ? "+" : ""}${oyaTotalChange}<hr>`;
-    
-    // リセット
     d.players.forEach(p => { p.bet = 0; p.yaku = "none"; });
     d.history = log + (d.history || "");
     ref.set(d, { merge: true });
@@ -188,17 +207,22 @@ function render(d){
   document.getElementById("history").innerHTML = d.history || "履歴なし";
 
   d.players?.forEach((p, i) => {
+    const isDebt = p.point <= 0;
+    
     playersDiv.innerHTML += `
-    <div class="player ${p.isOya ? 'oya-active' : ''}">
+    <div class="player ${p.isOya ? 'oya-active' : ''} ${isDebt ? 'debt-active' : ''}">
       <button class="delete-btn" onclick="removePlayer(${i})">×</button>
       <div>
         ${p.isOya ? '<span class="oya-badge">親</span>' : ''}
-        <b>${p.name}</b> : <span style="font-size:20px">${p.point}</span> pt
+        ${isDebt ? '<span class="debt-badge">所持金なし</span>' : ''}
+        <b>${p.name}</b> : <span style="font-size:20px; color:${isDebt ? 'red' : 'black'}">${p.point}</span> pt
+        <div style="font-size:12px; color:#666;">（借金総額: ${p.debt || 0}pt）</div>
       </div>
+      
       <div style="display:flex; gap:5px; margin-top:10px;">
         <input type="number" value="${p.bet}" onchange="bet(${i},this.value)" placeholder="BET" style="flex:1">
         <select onchange="setYaku(${i},this.value)" style="flex:2">
-          <option value="none">--- 役を選択 ---</option>
+          <option value="none">役を選択</option>
           <optgroup label="特殊役">
             <option value="pinzoro" ${p.yaku==='pinzoro'?'selected':''}>ピンゾロ (5倍)</option>
             <option value="shigoro" ${p.yaku==='shigoro'?'selected':''}>シゴロ (2倍)</option>
@@ -217,8 +241,15 @@ function render(d){
           <option value="none" ${p.yaku==='none'?'selected':''}>役なし</option>
           <option value="shomben" ${p.yaku==='shomben'?'selected':''}>ションベン</option>
         </select>
-        <button onclick="setOya(${i})" style="flex:1; padding:5px; font-size:12px;">親に設定</button>
+        <button onclick="setOya(${i})" style="flex:1; padding:5px; font-size:12px;">親設定</button>
       </div>
+      
+      ${isDebt ? `
+      <div class="borrow-area">
+        <input type="number" id="borrow-input-${i}" placeholder="借金する額" style="flex:1; margin:0;">
+        <button class="borrow-btn" onclick="borrowMoney(${i})">💸 借金実行</button>
+      </div>
+      ` : ''}
     </div>`;
   });
 
@@ -230,7 +261,6 @@ function render(d){
 // --- グループ管理系 ---
 function getGroups() { return JSON.parse(localStorage.getItem("groupList")) || []; }
 function saveGroups(list) { localStorage.setItem("groupList", JSON.stringify(list)); }
-
 function changeGroup(){
   const name = document.getElementById("groupSelect").value;
   if(unsubscribe) unsubscribe();
@@ -240,7 +270,6 @@ function changeGroup(){
     else render({players:[], history:""});
   });
 }
-
 function addGroup(){
   const name = prompt("グループ名");
   if(!name) return;
@@ -251,7 +280,6 @@ function addGroup(){
   const list = getGroups(); list.push(name); saveGroups(list);
   select.value = name; changeGroup();
 }
-
 function deleteGroup(){
   const select = document.getElementById("groupSelect");
   const name = select.value;
@@ -261,11 +289,9 @@ function deleteGroup(){
   select.remove(select.selectedIndex);
   if(select.options.length > 0) changeGroup();
 }
-
 function resetGame(){
   if(confirm("リセットしますか？")) ref.set({ players: [], history: "" });
 }
-
 window.onload = () => {
   const select = document.getElementById("groupSelect");
   getGroups().forEach(name => {
@@ -278,4 +304,3 @@ window.onload = () => {
 </script>
 </body>
 </html>
-
