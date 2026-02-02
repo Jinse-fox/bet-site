@@ -54,11 +54,11 @@ let ref = db.collection("game").doc("main");
 let unsubscribe = null;
 
 function getGroups() {
-  return JSON.parse(localStorage.getItem("groups")) || {};
+  return JSON.parse(localStorage.getItem("groupList")) || [];
 }
 
-function saveGroups(groups) {
-  localStorage.setItem("groups", JSON.stringify(groups));
+function saveGroups(list) {
+  localStorage.setItem("groupList", JSON.stringify(list));
 }
  
 const players = document.getElementById("players");
@@ -156,6 +156,16 @@ unsubscribe = ref.onSnapshot(s=>{
 }
 
 window.onload = function(){
+  const select = document.getElementById("groupSelect");
+  const saved = getGroups();
+
+  saved.forEach(name=>{
+    const option = document.createElement("option");
+    option.value = name;
+    option.textContent = name;
+    select.appendChild(option);
+  });
+
   changeGroup();
 };
 
@@ -165,16 +175,23 @@ function addGroup(){
 
   const select = document.getElementById("groupSelect");
 
+  // 重複チェック
+  if([...select.options].some(o => o.value === name)){
+    alert("同じ名前があります");
+    return;
+  }
+
   const option = document.createElement("option");
   option.value = name;
   option.textContent = name;
-
   select.appendChild(option);
 
-  // 追加したグループを選択状態にする
-  select.value = name;
+  // localStorageに保存
+  const list = getGroups();
+  list.push(name);
+  saveGroups(list);
 
-  // Firestore切り替え
+  select.value = name;
   changeGroup();
 }
 
@@ -184,13 +201,15 @@ function deleteGroup(){
 
   if(!confirm(name + " を削除しますか？")) return;
 
-  // Firestoreから削除
   db.collection("game").doc(name).delete();
 
-  // プルダウンから削除
+  // localStorageから削除
+  let list = getGroups();
+  list = list.filter(n => n !== name);
+  saveGroups(list);
+
   select.remove(select.selectedIndex);
 
-  // 次のグループに切り替え
   if(select.options.length > 0){
     changeGroup();
   }
@@ -204,6 +223,7 @@ function deleteGroup(){
 
 </body>
 </html>
+
 
 
 
