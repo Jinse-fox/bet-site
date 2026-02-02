@@ -53,6 +53,8 @@ firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 let ref = db.collection("game").doc("main");
 
+let unsubscribe = null;
+
 function getGroups() {
   return JSON.parse(localStorage.getItem("groups")) || {};
 }
@@ -64,11 +66,6 @@ function saveGroups(groups) {
 const players = document.getElementById("players");
 const buttons = document.getElementById("buttons");
 const history = document.getElementById("history");
-
-ref.onSnapshot(s=>{
- if(!s.exists)return;
- render(s.data());
-});
 
 function add(){
 
@@ -144,11 +141,18 @@ function resetGame(){
 
 function changeGroup(){
   const name = document.getElementById("groupSelect").value;
-
+ 
+  if(unsubscribe){
+    unsubscribe();
+  }
+  
   ref = db.collection("game").doc(name);
 
-  ref.onSnapshot(s=>{
-    if(!s.exists) return;
+unsubscribe = ref.onSnapshot(s=>{
+    if(!s.exists){
+      render({players:[], history:""});
+      return;
+    }
     render(s.data());
   });
 }
@@ -202,6 +206,7 @@ function deleteGroup(){
 
 </body>
 </html>
+
 
 
 
