@@ -157,6 +157,25 @@ window.onload = function(){
   changeGroup();
 };
 
+function addGroup(){
+  const name = prompt("グループ名を入力してください");
+  if(!name) return;
+
+  const select = document.getElementById("groupSelect");
+
+  const option = document.createElement("option");
+  option.value = name;
+  option.textContent = name;
+
+  select.appendChild(option);
+
+  // 追加したグループを選択状態にする
+  select.value = name;
+
+  // Firestore切り替え
+  changeGroup();
+}
+
 function deleteGroup(){
   const select = document.getElementById("groupSelect");
   const name = select.value;
@@ -183,6 +202,7 @@ function deleteGroup(){
 
 </body>
 </html>
+
 
 
 
